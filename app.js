@@ -1,38 +1,73 @@
+const { Client } = require('whatsapp-web.js');
 const express = require('express');
-const QRCode = require('qrcode');
+const qrcode = require('qrcode');
 const bodyParser = require('body-parser');
-const cors = require('cors');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const app = express();
-const port = 3000;
-
-// Middleware
+//const port = 3000;
+const port = process.env.PORT || 3000;
+// Middleware to parse JSON requests
 app.use(bodyParser.json());
-app.use(cors());
 
-// API endpoint to generate QR code and return image data
-app.post('/generate-qr', async (req, res) => {
-    const { data } = req.body;
+// Initialize the WhatsApp client
+const client = new Client();
 
-    if (!data || typeof data !== 'string' || data.trim() === '') {
-        return res.status(400).json({ error: 'Invalid data: A non-empty string is required.' });
+let qrCode = ''; // Variable to store the QR code
+
+client.on('qr', async (qr) => {
+    console.log('QR received');
+    qrCode = await qrcode.toDataURL(qr); // Convert QR to base64 image
+ //   qrcode.generate(qr, { small: true });
+
+});
+
+client.on('ready', () => {
+    console.log('Client is ready!');
+});
+
+// Initialize the client
+client.initialize();
+
+// API endpoint to get the QR code
+app.get('/generate-qr', (req, res) => {
+    if (!qrCode) {
+        return res.status(500).json({ message: 'QR Code not generated yet, please try again later.' });
+    }
+    res.json({ qr: qrCode });
+});
+
+// API to send a WhatsApp message
+app.post('/send-message', async (req, res) => {
+    const { phoneNumber, message } = req.body;
+
+    if (!phoneNumber || !message) {
+        return res.status(400).json({ error: 'Phone number and message are required.' });
     }
 
     try {
-        // Generate QR code
-        const qrCodeImage = await QRCode.toDataURL(data);
+        // Append WhatsApp domain to the phone number
+        const chatId = `${phoneNumber}@c.us`;
 
-        // Respond with the QR code image data
+        // Send the message
+        const response = await client.sendMessage(chatId, message);
+
         res.status(200).json({
-            qrCode: qrCodeImage
+            success: true,
+            message: 'Message sent successfully!',
+            response,
         });
     } catch (error) {
-        console.error('Error generating QR code:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
+        console.error('Error sending message:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to send the message.',
+        });
     }
 });
 
-// Start the Express server
+// Start the server
 app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server is running at http://localhost:${port}`);
 });
